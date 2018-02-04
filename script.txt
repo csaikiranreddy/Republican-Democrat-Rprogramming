@@ -1,0 +1,126 @@
+#read values and process it.
+df <- read.table("house-votes.txt",sep = ",",header=FALSE)
+df[df == "?"] <- NA
+str(df)
+head(df)
+install.packages("plyr")
+library(plyr)
+x <- c("V2","V3","V4","V5","V6","V7","V8","V9","V10","V11","V12","V13","V14","V15","V16","V17")
+for(i in x){
+df1 <- ifelse(count(df,i)[1,2] > count(df,i)[2,2], "n", "y")
+df[[i]] <- as.factor(ifelse(is.na(df[[i]]), df1, as.character(df[[i]])))
+}
+
+#implementing Decision Tree
+install.packages("C50")
+library(C50)
+c_m <- C5.0(df[-1], df$V1)
+set.seed(97)
+train <- sample(435, 300)
+train_data <- df[train,]
+test_data <- df[-train, ]
+pred_data <- predict(c_m, test_data)
+install.packages(c("gmodels"))
+library(gmodels) 
+CrossTable(test_data$V1, pred_data, prop.chisq = FALSE, prop.c = FALSE, prop.r = FALSE, dnn = c('actual default', 'predicted default'))
+final_data <- predict(c_m, test_data, type ="prob")
+head(final_data)
+
+#implementing Naive Bayes
+install.packages("tm")
+library(tm)
+install.packages("SnowballC")
+library(SnowballC)
+NB_df <- df
+NB_df$V1 <- factor(NB_df$V1)
+NB_train <- NB_df[1:300, ]
+NB_test <- NB_df[300:435, ]
+NB_train_labels <- NB_df[1:300, ]$V1
+NB_test_labels <- NB_df[300:435, ]$V1
+install.packages("e1071")
+library(e1071)
+NB_classifier <- naiveBayes(NB_train, NB_train_labels)
+NB_test_pred <- predict(NB_classifier, NB_test)
+NB_test_prob <- predict(NB_classifier, NB_test, type = "raw")
+CrossTable(NB_test_pred, NB_test_labels, prop.chisq = FALSE, prop.c = FALSE, prop.r = FALSE, dnn = c('actual default', 'predicted default'))
+head(NB_test_prob)
+
+#CROSS-VALIDATION
+install.packages("caret")
+library(caret)
+n_fold <- createFolds(df$V1, k = 10)
+str(n_fold)
+df_test <- df[n_fold$Fold01, ]
+df_train <- df[-n_fold$Fold01, ]
+install.packages("irr")
+library(irr)
+
+#cross-validation Desicion Tree
+results.cv <- lapply(n_fold, function(x) {
+  df_train <- df[-x, ]
+  df_test <- df[x, ]
+  df_model <- C5.0(V1 ~ ., data = df_train)
+  df_pred <- predict(df_model, df_test)
+  df_actual <- df_test$V1
+  kappa <- kappa2(data.frame(df_actual, df_pred))$value
+  return(kappa)
+   })
+str(results.cv)
+mean(unlist(results.cv))
+
+#cross-validation Naive Bayes
+results.NB <- lapply(n_fold, function(x) {
+  df_train <- df[-x, ]
+  df_test <- df[x, ]
+  df_model <- naiveBayes(V1 ~ ., data = df_train)
+  df_pred <- predict(df_model, df_test)
+  df_actual <- df_test$V1
+  kappa <- kappa2(data.frame(df_actual, df_pred))$value
+  return(kappa)
+})
+str(results.NB)
+mean(unlist(results.NB))
+
+#AUTOMATED PARAMETER TUNING
+#Decision tree
+set.seed(1)
+m <- train(V1 ~ ., data = df, method = "C5.0")
+m
+m$finalModel
+plot(m)
+pred <- predict(m, df)
+table(pred, df$V1) 
+head(predict(m, df, type = "prob"))
+
+#Naive Bayes
+set.seed(1)
+m <- train(V1 ~ ., data = df, method = "nb")
+m
+m$finalModel
+plot(m)
+pred <- predict(m, df)
+table(pred, df$V1) 
+head(predict(m, df, type = "prob"))
+
+
+#Ensemble Learning - Bagging
+#install.packages("ipred")
+library(ipred)
+#install.packages("kernlab")
+library(kernlab)
+
+#Decision Tree
+str(ctreeBag)
+bag.ctr <- bagControl(fit = ctreeBag$fit,predict = ctreeBag$pred,aggregate = ctreeBag$aggregate) 
+set.seed(123)
+ctr <-trainControl(method = "cv", number = 10)
+ctree.bag <- train(V1 ~ ., data = df , trControl = ctr, bagControl = bag.ctr)
+ctree.bag
+
+#Naive Bayes
+str(nbBag)
+bag.ctr <- bagControl(fit = nbBag$fit,predict = nbBag$pred,aggregate = nbBag$aggregate) 
+set.seed(1)
+ctr <-trainControl(method = "cv", number = 10)
+nb.bag <- train(V1 ~ ., data = df, "bag",trControl = ctr, bagControl = bag.ctr)
+nb.bag
